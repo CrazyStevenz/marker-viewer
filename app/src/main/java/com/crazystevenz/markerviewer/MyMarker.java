@@ -1,5 +1,6 @@
 package com.crazystevenz.markerviewer;
 
+import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.firebase.firestore.DocumentReference;
 
@@ -56,6 +57,18 @@ public class MyMarker {
         for (int i = 0; i < myMarkers.size(); i++) {
             MyMarker myMarker = myMarkers.get(i);
             if (myMarker.equals(marker)) {
+                return myMarker;
+            }
+        }
+
+        return null;
+    }
+
+    public static MyMarker findByLatLng(List<MyMarker> myMarkers, LatLng latlng) {
+        for (int i = 0; i < myMarkers.size(); i++) {
+            MyMarker myMarker = myMarkers.get(i);
+            if (myMarker.getMarker().getPosition().latitude == latlng.latitude
+             && myMarker.getMarker().getPosition().longitude == latlng.longitude) {
                 return myMarker;
             }
         }
