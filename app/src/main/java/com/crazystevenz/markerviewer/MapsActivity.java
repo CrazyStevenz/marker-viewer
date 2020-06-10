@@ -7,15 +7,16 @@ import android.os.Bundle;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
-import com.google.android.material.textfield.TextInputEditText;
 import com.google.firebase.firestore.DocumentChange;
 import com.google.firebase.firestore.EventListener;
 import com.google.firebase.firestore.FirebaseFirestore;
@@ -29,12 +30,12 @@ import java.util.Map;
 
 public class MapsActivity extends AppCompatActivity implements OnMapReadyCallback, GoogleMap.OnMarkerClickListener {
 
-    String[] COLORS = new String[] {"Red", "Green", "Blue", "Yellow", "Magenta"};
     private GoogleMap mMap;
     private FirebaseFirestore db = FirebaseFirestore.getInstance();
     private List<MyMarker> mMyMarkers = new ArrayList<>();
     private View mOverlayView;
-    private TextInputEditText mDescriptionTextView;
+    private TextView mDescriptionTextView;
+    private TextView mSensorTextView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -68,13 +69,15 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
     @Override
     public boolean onMarkerClick(Marker marker) {
-        showOverlay(MyMarker.find(mMyMarkers, marker));
+        MyMarker myMarker = MyMarker.find(mMyMarkers, marker);
+        if (myMarker != null) showOverlay(myMarker);
         return false;
     }
 
     private void setupOverlay() {
         mOverlayView = findViewById(R.id.overlay);
-        mDescriptionTextView = findViewById(R.id.descriptionTextInputEditText);
+        mDescriptionTextView = findViewById(R.id.descriptionTextView);
+        mSensorTextView = findViewById(R.id.sensorTextView);
 
         // Set the X in the overlay to hide it when clicked
         ImageButton closeImageButton = mOverlayView.findViewById(R.id.close_image_button);
@@ -90,9 +93,18 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
         // Update the overlay's info
         TextView titleTextView = findViewById(R.id.titleTextView);
         titleTextView.setText(myMarker.getMarker().getTitle());
-        mDescriptionTextView.setText(myMarker.getMarker().getSnippet());
+        String description = myMarker.getMarker().getSnippet();
+        if (description.equals("")) {
+            mDescriptionTextView.setText("No description provided.");
+        } else {
+            mDescriptionTextView.setText(myMarker.getMarker().getSnippet());
+        }
+        mSensorTextView.setText("Temperature: " + myMarker.getSensorReading() + "°C");
 
         mOverlayView.setVisibility(View.VISIBLE);
+
+        // Display the new marker's info
+        myMarker.getMarker().showInfoWindow();
 
         // Wait for the overlay to update
         mOverlayView.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
@@ -116,25 +128,29 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
     }
 
     private void listenToDb() {
-        final Query docRef = db.collection("markers").limit(5);
+        final Query docRef = db.collection("markers").limit(6);
         docRef.addSnapshotListener(new EventListener<QuerySnapshot>() {
             @Override
             public void onEvent(@Nullable QuerySnapshot snapshots,
                                 @Nullable FirebaseFirestoreException e) {
                 if (e != null) {
-                    System.out.println("Listen failed.");
+                    Toast.makeText(getApplicationContext(),
+                            "Listen failed: " + e.getMessage(),
+                            Toast.LENGTH_SHORT
+                    ).show();
                     return;
                 }
 
                 try {
                     for (DocumentChange dc : snapshots.getDocumentChanges()) {
+                        Map<String, Object> data = dc.getDocument().getData();
+
                         switch (dc.getType()) {
                             case ADDED:
-                                Map<String, Object> addedData = dc.getDocument().getData();
 
                                 // Get position of marker
                                 Map<String, Object> latLngMap =
-                                        (Map<String, Object>) addedData.get("position");
+                                        (Map<String, Object>) data.get("position");
                                 LatLng latLng = new LatLng(
                                         Double.parseDouble(latLngMap.get("latitude").toString()),
                                         Double.parseDouble(latLngMap.get("longitude").toString())
@@ -142,45 +158,97 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
                                 // Set position, title and description of marker and add it to the map
                                 MarkerOptions markerOptions = new MarkerOptions().position(latLng);
-                                markerOptions.title(addedData.get("title").toString());
-                                markerOptions.snippet(addedData.get("description").toString());
+                                markerOptions.title(data.get("title").toString());
+                                markerOptions.snippet(data.get("description").toString());
                                 Marker newMarker = mMap.addMarker((markerOptions));
 
                                 MyMarker myMarker = new MyMarker(newMarker);
 
                                 // Get the rest of the data
-                                myMarker.setColor(addedData.get("color").toString());
+                                myMarker.setColor(data.get("color").toString());
 
-                                if (addedData.get("sensorReading") != null) {
+                                if (data.get("sensorReading") != null) {
                                     myMarker.setSensorReading(
-                                            Float.parseFloat(addedData.get("sensorReading").toString())
+                                            Float.parseFloat(data.get("sensorReading").toString())
                                     );
                                 }
 
                                 // Add the new marker to the marker list so we can access it later
                                 mMyMarkers.add(myMarker);
 
+                                setColor(myMarker.getMarker(), myMarker.getColor());
+
                                 showOverlay(myMarker);
                                 break;
-                            case MODIFIED:
-                                // Log.d(TAG, "Modified city: " + dc.getDocument().getData());
-                                break;
-                            case REMOVED:
-                                // Source: https://stackoverflow.com/questions/13692398/remove-a-marker-from-a-googlemap
-                                // Delete the marker from the map
-                                mMyMarkers.get(0).getMarker().remove();
-                                // Remove it from the list
-                                mMyMarkers.remove(0);
 
+                            case MODIFIED:
+
+                                // Get position of marker
+                                Map<String, Object> modifiedLatLngMap =
+                                        (Map<String, Object>) data.get("position");
+                                LatLng modifiedLatLng = new LatLng(
+                                        Double.parseDouble(modifiedLatLngMap.get("latitude").toString()),
+                                        Double.parseDouble(modifiedLatLngMap.get("longitude").toString())
+                                );
+
+                                MyMarker modifiedMyMarker = MyMarker.findByLatLng(mMyMarkers, modifiedLatLng);
+
+                                if (modifiedMyMarker == null) {
+                                    Toast.makeText(getApplicationContext(),
+                                            "The modified marker wasn't found",
+                                            Toast.LENGTH_SHORT
+                                    ).show();
+                                } else {
+                                    modifiedMyMarker.getMarker().setTitle(data.get("title").toString());
+                                    modifiedMyMarker.getMarker().setSnippet(data.get("description").toString());
+                                    modifiedMyMarker.setColor(data.get("color").toString());
+                                    if (data.get("sensorReading") != null) {
+                                        modifiedMyMarker.setSensorReading(
+                                                Float.parseFloat(data.get("sensorReading").toString())
+                                        );
+                                    }
+
+                                    setColor(modifiedMyMarker.getMarker(), modifiedMyMarker.getColor());
+
+                                    showOverlay(modifiedMyMarker);
+                                }
+                                break;
+
+                            case REMOVED:
+
+                                // Get position of marker
+                                Map<String, Object> removedLatLngMap =
+                                        (Map<String, Object>) data.get("position");
+                                LatLng removedLatLng = new LatLng(
+                                        Double.parseDouble(removedLatLngMap.get("latitude").toString()),
+                                        Double.parseDouble(removedLatLngMap.get("longitude").toString())
+                                );
+
+                                MyMarker removedMyMarker = MyMarker.findByLatLng(mMyMarkers, removedLatLng);
+
+                                if (removedMyMarker == null) {
+                                    Toast.makeText(getApplicationContext(),
+                                            "The deleted marker wasn't found",
+                                            Toast.LENGTH_SHORT
+                                    ).show();
+                                } else {
+                                    // Source: https://stackoverflow.com/questions/13692398/remove-a-marker-from-a-googlemap
+                                    // Delete the marker from the map
+                                    removedMyMarker.getMarker().remove();
+                                    // Remove it from the list
+                                    mMyMarkers.remove(removedMyMarker);
+                                }
                                 break;
                         }
                     }
                 } catch (Exception ex) {
-                    System.out.println(ex.getMessage());
+                    Toast.makeText(getApplicationContext(),
+                            ex.getMessage(),
+                            Toast.LENGTH_SHORT
+                    ).show();
                 }
             }
         });
-
     }
 
     private void setColor(Marker marker, String color) {
