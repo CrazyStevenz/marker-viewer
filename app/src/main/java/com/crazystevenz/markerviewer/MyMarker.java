@@ -3,6 +3,8 @@ package com.crazystevenz.markerviewer;
 import com.google.android.gms.maps.model.Marker;
 import com.google.firebase.firestore.DocumentReference;
 
+import java.util.List;
+
 public class MyMarker {
     private Marker marker;
     private DocumentReference ref;
@@ -48,5 +50,16 @@ public class MyMarker {
     public boolean equals(Marker marker) {
         return this.marker.getPosition().latitude == marker.getPosition().latitude
             && this.marker.getPosition().longitude == marker.getPosition().longitude;
+    }
+
+    public static MyMarker find(List<MyMarker> myMarkers, Marker marker) {
+        for (int i = 0; i < myMarkers.size(); i++) {
+            MyMarker myMarker = myMarkers.get(i);
+            if (myMarker.equals(marker)) {
+                return myMarker;
+            }
+        }
+
+        return null;
     }
 }

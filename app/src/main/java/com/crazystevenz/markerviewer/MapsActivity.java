@@ -12,7 +12,9 @@ import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
+import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.firebase.firestore.DocumentChange;
 import com.google.firebase.firestore.EventListener;
@@ -45,6 +47,7 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
 
+        setupOverlay();
         listenToDb();
     }
 
@@ -65,7 +68,7 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
     @Override
     public boolean onMarkerClick(Marker marker) {
-        showOverlay(marker);
+        showOverlay(MyMarker.find(mMyMarkers, marker));
         return false;
     }
 
@@ -83,11 +86,11 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
         });
     }
 
-    private void showOverlay(final Marker marker) {
+    private void showOverlay(final MyMarker myMarker) {
         // Update the overlay's info
         TextView titleTextView = findViewById(R.id.titleTextView);
-        titleTextView.setText(marker.getTitle());
-        mDescriptionTextView.setText(marker.getSnippet());
+        titleTextView.setText(myMarker.getMarker().getTitle());
+        mDescriptionTextView.setText(myMarker.getMarker().getSnippet());
 
         mOverlayView.setVisibility(View.VISIBLE);
 
@@ -101,7 +104,7 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
                 // Source: https://stackoverflow.com/questions/13932441/android-google-maps-v2-set-zoom-level-for-mylocation
                 // Move the camera to the user's location and zoom in
-                mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(marker.getPosition(), 15.0f));
+                mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(myMarker.getMarker().getPosition(), 15.0f));
             }
         });
     }
@@ -112,12 +115,8 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
         mMap.setPadding(0, 0, 0, 0);
     }
 
-    private void addMarker() {
-
-    }
-
     private void listenToDb() {
-        final Query docRef = db.collection("cities").limit(5);
+        final Query docRef = db.collection("markers").limit(5);
         docRef.addSnapshotListener(new EventListener<QuerySnapshot>() {
             @Override
             public void onEvent(@Nullable QuerySnapshot snapshots,
@@ -127,20 +126,57 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
                     return;
                 }
 
-                for (DocumentChange dc : snapshots.getDocumentChanges()) {
-                    switch (dc.getType()) {
-                        case ADDED:
-                            Map<String, Object> a = dc.getDocument().getData();
-//                            mMyMarkers.get
-//                            Log.d(TAG, "New city: " + );
-                            break;
-                        case MODIFIED:
-//                            Log.d(TAG, "Modified city: " + dc.getDocument().getData());
-                            break;
-                        case REMOVED:
-//                            Log.d(TAG, "Removed city: " + dc.getDocument().getData());
-                            break;
+                try {
+                    for (DocumentChange dc : snapshots.getDocumentChanges()) {
+                        switch (dc.getType()) {
+                            case ADDED:
+                                Map<String, Object> addedData = dc.getDocument().getData();
+
+                                // Get position of marker
+                                Map<String, Object> latLngMap =
+                                        (Map<String, Object>) addedData.get("position");
+                                LatLng latLng = new LatLng(
+                                        Double.parseDouble(latLngMap.get("latitude").toString()),
+                                        Double.parseDouble(latLngMap.get("longitude").toString())
+                                );
+
+                                // Set position, title and description of marker and add it to the map
+                                MarkerOptions markerOptions = new MarkerOptions().position(latLng);
+                                markerOptions.title(addedData.get("title").toString());
+                                markerOptions.snippet(addedData.get("description").toString());
+                                Marker newMarker = mMap.addMarker((markerOptions));
+
+                                MyMarker myMarker = new MyMarker(newMarker);
+
+                                // Get the rest of the data
+                                myMarker.setColor(addedData.get("color").toString());
+
+                                if (addedData.get("sensorReading") != null) {
+                                    myMarker.setSensorReading(
+                                            Float.parseFloat(addedData.get("sensorReading").toString())
+                                    );
+                                }
+
+                                // Add the new marker to the marker list so we can access it later
+                                mMyMarkers.add(myMarker);
+
+                                showOverlay(myMarker);
+                                break;
+                            case MODIFIED:
+                                // Log.d(TAG, "Modified city: " + dc.getDocument().getData());
+                                break;
+                            case REMOVED:
+                                // Source: https://stackoverflow.com/questions/13692398/remove-a-marker-from-a-googlemap
+                                // Delete the marker from the map
+                                mMyMarkers.get(0).getMarker().remove();
+                                // Remove it from the list
+                                mMyMarkers.remove(0);
+
+                                break;
+                        }
                     }
+                } catch (Exception ex) {
+                    System.out.println(ex.getMessage());
                 }
             }
         });
