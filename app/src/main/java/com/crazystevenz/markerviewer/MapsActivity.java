@@ -128,7 +128,9 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
     }
 
     private void listenToDb() {
+        // Get the first 6 markers, since that's the maximum that can exist at any given time
         final Query docRef = db.collection("markers").limit(6);
+        // Listen to the database for changes
         docRef.addSnapshotListener(new EventListener<QuerySnapshot>() {
             @Override
             public void onEvent(@Nullable QuerySnapshot snapshots,
@@ -143,8 +145,10 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
                 try {
                     for (DocumentChange dc : snapshots.getDocumentChanges()) {
+                        // Get the changed database entry
                         Map<String, Object> data = dc.getDocument().getData();
 
+                        // Check the type of operation that was performed
                         switch (dc.getType()) {
                             case ADDED:
 
@@ -166,7 +170,6 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
                                 // Get the rest of the data
                                 myMarker.setColor(data.get("color").toString());
-
                                 if (data.get("sensorReading") != null) {
                                     myMarker.setSensorReading(
                                             Float.parseFloat(data.get("sensorReading").toString())
@@ -191,13 +194,17 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
                                         Double.parseDouble(modifiedLatLngMap.get("longitude").toString())
                                 );
 
+                                // Find which marker was modified
                                 MyMarker modifiedMyMarker = MyMarker.findByLatLng(mMyMarkers, modifiedLatLng);
 
+                                // If the marker that was modified wasn't found, show an error
                                 if (modifiedMyMarker == null) {
                                     Toast.makeText(getApplicationContext(),
                                             "The modified marker wasn't found",
                                             Toast.LENGTH_SHORT
                                     ).show();
+
+                                // Else update the marker's info
                                 } else {
                                     modifiedMyMarker.getMarker().setTitle(data.get("title").toString());
                                     modifiedMyMarker.getMarker().setSnippet(data.get("description").toString());
@@ -224,13 +231,17 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
                                         Double.parseDouble(removedLatLngMap.get("longitude").toString())
                                 );
 
+                                // Find which marker was deleted
                                 MyMarker removedMyMarker = MyMarker.findByLatLng(mMyMarkers, removedLatLng);
 
+                                // If the marker that was deleted wasn't found, show an error
                                 if (removedMyMarker == null) {
                                     Toast.makeText(getApplicationContext(),
                                             "The deleted marker wasn't found",
                                             Toast.LENGTH_SHORT
                                     ).show();
+
+                                // Else delete the marker from everywhere it's referenced
                                 } else {
                                     // Source: https://stackoverflow.com/questions/13692398/remove-a-marker-from-a-googlemap
                                     // Delete the marker from the map
